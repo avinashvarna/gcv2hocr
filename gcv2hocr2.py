@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 import sys
 import json
@@ -69,10 +69,14 @@ class GCVAnnotation:
         self.lang = lang
         self.ocr_class = ocr_class
         try:
-            self.x0 = int(float(self.page_width*(box[0]['x'] if 'x' in box[0] and box[0]['x'] > 0 else 0)))
-            self.y0 = int(float(self.page_height*(box[0]['y'] if 'y' in box[0] and box[0]['y'] > 0 else 0)))
-            self.x1 = int(float(self.page_width*(box[2]['x'] if 'x' in box[2] and box[2]['x'] > 0 else 0)))
-            self.y1 = int(float(self.page_height*(box[2]['y'] if 'y' in box[2] and box[2]['y'] > 0 else 0)))
+            # self.x0 = int(float(self.page_width*(box[0]['x'] if 'x' in box[0] and box[0]['x'] > 0 else 0)))
+            # self.y0 = int(float(self.page_height*(box[0]['y'] if 'y' in box[0] and box[0]['y'] > 0 else 0)))
+            # self.x1 = int(float(self.page_width*(box[2]['x'] if 'x' in box[2] and box[2]['x'] > 0 else 0)))
+            # self.y1 = int(float(self.page_height*(box[2]['y'] if 'y' in box[2] and box[2]['y'] > 0 else 0)))
+            self.x0 = box[0]['x']
+            self.y0 = box[0]['y']
+            self.x1 = box[2]['x']
+            self.y1 = box[2]['y']
         except ValueError as e:
             output = 'Input JSON does not have proper boundingBox values. ' \
                       'This page of the PDF either must not have been ' \
@@ -111,8 +115,8 @@ def fromResponse(resp, file_name, baseline_tolerance=2, **kwargs):
     else:
         for page_id, page_json in enumerate(resp['responses'][0]['fullTextAnnotation']['pages']):
           box = [{"x": 0, "y": 0}, {"x": 0, "y": 0}, {"x": 0, "y": 0}, {"x": 0, "y": 0}]
-          GCVAnnotation.height = page_json.get('width')
-          GCVAnnotation.width = page_json.get('height')
+          GCVAnnotation.height = page_json.get('height')
+          GCVAnnotation.width = page_json.get('width')
           page = GCVAnnotation(
                     ocr_class='ocr_page',
                     htmlid='page'+ str(page_id),
@@ -120,19 +124,19 @@ def fromResponse(resp, file_name, baseline_tolerance=2, **kwargs):
                     title=file_name
                     )
           for block_id, block_json in enumerate(page_json['blocks']):
-            box = block_json['boundingBox']['normalizedVertices']
+            box = block_json['boundingBox']['vertices']
             block = GCVAnnotation(ocr_class='ocr_carea',htmlid="block_%d" % block_id, box=box)
             page.content.append(block)
 
             line_id = 0
             for paragraph_id, paragraph_json in enumerate(block_json['paragraphs']):
-                box = paragraph_json['boundingBox']['normalizedVertices']
+                box = paragraph_json['boundingBox']['vertices']
                 par = GCVAnnotation(ocr_class='ocr_par',htmlid="par_"+ str(block_id) + "_" + str(paragraph_id), box=box)
                 block.content.append(par)
                 curline = GCVAnnotation(ocr_class='ocr_line', htmlid="line_"+ str(block_id) + "_" + str(paragraph_id)+"_"+ str(line_id), box=box)
                 par.content.append(curline)
                 for word_id, word_json in enumerate(paragraph_json['words']):
-                    box = word_json['boundingBox']['normalizedVertices']
+                    box = word_json['boundingBox']['vertices']
                     word_text = ''.join([
                         symbol['text'] for symbol in word_json['symbols']
                     ])
@@ -184,6 +188,10 @@ if __name__ == '__main__':
         "--savefile",
         help="Save to this file instead of outputting to stdout"
     )
+    parser.add_argument(
+        "--hocrjs-script", action='store_true', default=False,
+        help="Add hocrjs script tag"
+    )
     args = parser.parse_args()
 
     instream = sys.stdin if (args.gcv_file == '-') else open(args.gcv_file, 'r', encoding='utf-8' )
@@ -191,9 +199,11 @@ if __name__ == '__main__':
     page = fromResponse(resp, str(args.gcv_file.rsplit('.',1)[0]), **args.__dict__)
 
     if args.savefile:
+        output = page.render()
+        if args.hocrjs_script:
+            output = output.replace("</body>", '<script src="https://unpkg.com/hocrjs"></script>\n</body>')
         with (open(args.savefile, 'w', encoding="utf-8")) as outfile:
-            outfile.write(page.render().encode('utf-8') if str == bytes else page.render())
-            outfile.close()
+            outfile.write(output)
     else:
         if str == bytes:
             print(page.render().encode('utf-8'))
